@@ -11,7 +11,13 @@ const appointmentSchema = new mongoose.Schema(
     patientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false, // Made optional since we now have patientRecordId
+      index: true,
+    },
+    // Patient Record Reference (for onboarded patients)
+    patientRecordId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Patient',
       index: true,
     },
     // Child Reference (optional - for child appointments)
@@ -134,9 +140,18 @@ const appointmentSchema = new mongoose.Schema(
 // Indexes
 appointmentSchema.index({ therapistId: 1, appointmentDate: 1 });
 appointmentSchema.index({ patientId: 1, appointmentDate: -1 });
+appointmentSchema.index({ patientRecordId: 1, appointmentDate: -1 });
 appointmentSchema.index({ childId: 1, appointmentDate: -1 });
 appointmentSchema.index({ status: 1, appointmentDate: 1 });
 appointmentSchema.index({ appointmentDate: 1, appointmentTime: 1 });
+
+// Validation: At least one of patientId, patientRecordId, or childId must be provided
+appointmentSchema.pre('save', function (next) {
+  if (!this.patientId && !this.patientRecordId && !this.childId) {
+    return next(new Error('Either patientId, patientRecordId, or childId must be provided'));
+  }
+  next();
+});
 
 // Validation: Appointment date should be in the future
 appointmentSchema.pre('save', function (next) {

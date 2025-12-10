@@ -48,7 +48,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['parent', 'teacher', 'therapist', 'doctor', 'admin'],
+      enum: ['parent', 'teacher', 'therapist', 'doctor', 'admin', 'patient'],
       default: 'parent',
     },
     avatar: {
