@@ -60,6 +60,15 @@ export const createChild = async (req, res, next) => {
 export const getChild = async (req, res, next) => {
   try {
     const { childId } = req.params;
+    
+    // Prevent matching /search route
+    if (childId === 'search' || childId === 'my-children' || childId === 'dashboard') {
+      return res.status(404).json({
+        success: false,
+        message: 'Route not found',
+      });
+    }
+    
     const userId = req.user._id;
     const userRole = req.user.role;
 
@@ -875,6 +884,251 @@ export const removePrimaryProfessional = async (req, res, next) => {
       success: true,
       data: updatedChild,
       message: `Primary ${role} removed successfully`,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Search children by parent email (for therapists/doctors)
+ * @route   GET /api/children/search?parentEmail=email
+ * @desc    Search children by parent email to request access
+ * @access  Private (therapist/doctor only)
+ */
+export const searchChildren = async (req, res, next) => {
+  try {
+    console.log('🔍 Search children route hit:', req.path, req.query);
+    
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authenticated',
+      });
+    }
+
+    // Only therapists and doctors can search
+    if (!['therapist', 'doctor'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only therapists and doctors can search for children',
+      });
+    }
+
+    const { parentEmail } = req.query;
+    if (!parentEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'parentEmail query parameter is required',
+      });
+    }
+
+    const result = await childService.searchChildrenByParentEmail(
+      parentEmail,
+      req.user._id,
+      req.user.role
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Request access to a child (for therapists/doctors)
+ * @route   POST /api/children/:childId/request-access
+ * @desc    Request access to a child profile
+ * @access  Private (therapist/doctor only)
+ */
+export const requestAccessToChild = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authenticated',
+      });
+    }
+
+    // Only therapists and doctors can request access
+    if (!['therapist', 'doctor'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only therapists and doctors can request access',
+      });
+    }
+
+    const { childId } = req.params;
+    const { message } = req.body;
+
+    const child = await Child.findById(childId).populate('parentId', 'name email');
+    if (!child) {
+      return res.status(404).json({
+        success: false,
+        message: 'Child not found',
+      });
+    }
+
+    // Check if already has access
+    const hasAccess = await childService.checkChildAccess(childId, req.user._id, req.user.role);
+    if (hasAccess) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have access to this child',
+      });
+    }
+
+    // Send notification to parent
+    const { createNotification } = await import('../services/notification.service.js');
+    await createNotification({
+      userId: child.parentId._id,
+      type: 'access_request',
+      title: `${req.user.role === 'doctor' ? 'Doctor' : 'Therapist'} Access Request`,
+      message: `${req.user.name} (${req.user.email}) is requesting access to ${child.name}'s profile.${message ? ` Message: ${message}` : ''}`,
+      relatedUser: req.user._id,
+      actionUrl: `/children/${childId}/dashboard`,
+      metadata: {
+        childId: childId,
+        professionalId: req.user._id.toString(),
+        professionalRole: req.user.role,
+        childName: child.name,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Access request sent to parent. They will be notified.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Approve access request (for parents)
+ * @route   POST /api/children/:childId/approve-access
+ * @desc    Approve a therapist/doctor access request
+ * @access  Private (parent only)
+ */
+export const approveAccessRequest = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authenticated',
+      });
+    }
+
+    const { childId } = req.params;
+    const { professionalId, professionalRole } = req.body;
+
+    if (!professionalId || !professionalRole) {
+      return res.status(400).json({
+        success: false,
+        message: 'professionalId and professionalRole are required',
+      });
+    }
+
+    const child = await Child.findById(childId);
+    if (!child) {
+      return res.status(404).json({
+        success: false,
+        message: 'Child not found',
+      });
+    }
+
+    // Only parent can approve
+    if (child.parentId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only parent can approve access requests',
+      });
+    }
+
+    // Assign the professional
+    if (professionalRole === 'doctor') {
+      await childService.addAssignedProfessional(childId, professionalId, professionalRole, req.user._id);
+    } else if (professionalRole === 'therapist') {
+      await childService.addAssignedProfessional(childId, professionalId, professionalRole, req.user._id);
+    }
+
+    // Send notification to professional
+    const { createNotification } = await import('../services/notification.service.js');
+    await createNotification({
+      userId: professionalId,
+      type: 'profile_verified',
+      title: 'Access Request Approved',
+      message: `Your access request for ${child.name}'s profile has been approved by ${req.user.name}.`,
+      relatedUser: req.user._id,
+      actionUrl: `/children/${childId}/dashboard`,
+    });
+
+    res.json({
+      success: true,
+      message: 'Access request approved successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Deny access request (for parents)
+ * @route   POST /api/children/:childId/deny-access
+ * @desc    Deny a therapist/doctor access request
+ * @access  Private (parent only)
+ */
+export const denyAccessRequest = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authenticated',
+      });
+    }
+
+    const { childId } = req.params;
+    const { professionalId } = req.body;
+
+    if (!professionalId) {
+      return res.status(400).json({
+        success: false,
+        message: 'professionalId is required',
+      });
+    }
+
+    const child = await Child.findById(childId);
+    if (!child) {
+      return res.status(404).json({
+        success: false,
+        message: 'Child not found',
+      });
+    }
+
+    // Only parent can deny
+    if (child.parentId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only parent can deny access requests',
+      });
+    }
+
+    // Send notification to professional
+    const { createNotification } = await import('../services/notification.service.js');
+    await createNotification({
+      userId: professionalId,
+      type: 'profile_unverified',
+      title: 'Access Request Denied',
+      message: `Your access request for ${child.name}'s profile has been denied by ${req.user.name}.`,
+      relatedUser: req.user._id,
+    });
+
+    res.json({
+      success: true,
+      message: 'Access request denied',
     });
   } catch (error) {
     next(error);

@@ -26,7 +26,7 @@ import reviewRoutes from './routes/review.routes.js';
 import resourceRoutes from './routes/resource.routes.js';
 import messageRoutes from './routes/message.routes.js';
 import childRoutes from './routes/child.routes.js';
-import patientRoutes from './routes/patient.routes.js';
+import profileDashboardRoutes from './routes/profileDashboard.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import subscriptionRoutes from './routes/subscription.routes.js';
@@ -143,7 +143,19 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/resources', resourceRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/children', childRoutes);
-app.use('/api/patients', patientRoutes);
+
+// Debug middleware for /api/profile routes
+app.use('/api/profile', (req, res, next) => {
+  console.log('🌐 Server - /api/profile route hit:', {
+    method: req.method,
+    path: req.path,
+    originalUrl: req.originalUrl,
+    url: req.url,
+  });
+  next();
+});
+
+app.use('/api/profile', profileDashboardRoutes); // Unified profile dashboard
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);

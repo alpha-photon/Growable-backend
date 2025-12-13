@@ -16,8 +16,12 @@ router.use(protect);
  */
 router.post('/', childController.createChild); // Create child (parent only)
 router.get('/my-children', childController.getMyChildren); // Get my children
-router.get('/dashboard/:childId', childController.getChildDashboard); // Get dashboard
-router.get('/:childId', childController.getChild); // Get child by ID
+router.get('/search', childController.searchChildren); // Search children (for therapists/doctors) - MUST be before /:childId
+router.get('/dashboard/:childId', childController.getChildDashboard); // Get dashboard - MUST be before /:childId
+router.post('/:childId/request-access', childController.requestAccessToChild); // Request access to child
+router.post('/:childId/approve-access', childController.approveAccessRequest); // Approve access request
+router.post('/:childId/deny-access', childController.denyAccessRequest); // Deny access request
+router.get('/:childId', childController.getChild); // Get child by ID - MUST be last
 router.put('/:childId', childController.updateChild); // Update child
 router.post('/:childId/share', childController.shareChild); // Share child with professional
 

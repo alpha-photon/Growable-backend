@@ -2,7 +2,6 @@ import Appointment from '../models/Appointment.model.js';
 import TherapistProfile from '../models/TherapistProfile.model.js';
 import User from '../models/User.model.js';
 import Child from '../models/Child.model.js';
-import Patient from '../models/Patient.model.js';
 import * as childService from './child.service.js';
 import * as notificationService from './notification.service.js';
 
@@ -60,178 +59,12 @@ export const createAppointment = async (appointmentData) => {
       ? profile.consultationFee?.online || 0
       : profile.consultationFee?.offline || 0;
 
-  // Auto-create or link Patient record if patientId is provided but patientRecordId is not
-  // OR if childId is provided (for specialable children)
-  let patientRecordId = appointmentData.patientRecordId;
-  
-  // Priority 1: If childId is provided, find or create Patient record linked to that child
-  if (appointmentData.childId && !patientRecordId) {
-    try {
-      const child = await Child.findById(appointmentData.childId);
-      if (child) {
-        // Find Patient record linked to this child
-        let patientRecord = await Patient.findOne({ linkedChildId: appointmentData.childId, isActive: true });
-        
-        if (!patientRecord) {
-          // Create Patient record for specialable child
-          const parentUser = await User.findById(child.parentId);
-          // Get email from parent or use a placeholder (email validation pattern requires 2-3 char TLD)
-          const patientEmail = parentUser?.email || `child_${appointmentData.childId}@specialable.in`;
-          
-          patientRecord = await Patient.create({
-            userId: parentUser?._id || patientId, // Link to parent user
-            name: child.name,
-            email: patientEmail,
-            onboardedBy: therapistId, // Therapist/Doctor who received the appointment
-            onboardedByRole: therapist.role,
-            patientType: 'specialable-child',
-            linkedChildId: appointmentData.childId, // Link to child
-            dateOfBirth: child.dateOfBirth || new Date(),
-            gender: child.gender || 'prefer-not-to-say',
-            isActive: true,
-          });
-        }
-        
-        if (patientRecord) {
-          patientRecordId = patientRecord._id;
-          
-          // Auto-assign therapist/doctor if not already assigned (using unified assignments)
-          if (therapist.role === 'doctor' || therapist.role === 'therapist') {
-            // Check unified assignments first
-            const alreadyHasAccess = patientRecord.hasAccess && patientRecord.hasAccess(therapistId, therapist.role);
-            if (!alreadyHasAccess) {
-              // Use unified assignments structure
-              patientRecord.addAssignment(therapistId, therapist.role, 'assigned');
-              
-              // Also update legacy structure for backward compatibility
-              if (therapist.role === 'doctor') {
-                const isPrimary = patientRecord.primaryDoctor?.toString() === therapistId.toString();
-                const isAlreadyAssigned = patientRecord.assignedDoctors?.some(
-                  (doc) => doc.doctorId?.toString() === therapistId.toString() && doc.isActive
-                );
-                if (!isPrimary && !isAlreadyAssigned) {
-                  if (!patientRecord.assignedDoctors) {
-                    patientRecord.assignedDoctors = [];
-                  }
-                  patientRecord.assignedDoctors.push({
-                    doctorId: therapistId,
-                    assignedAt: new Date(),
-                    isActive: true,
-                  });
-                }
-              } else if (therapist.role === 'therapist') {
-                const isPrimary = patientRecord.primaryTherapist?.toString() === therapistId.toString();
-                const isAlreadyAssigned = patientRecord.assignedTherapists?.some(
-                  (t) => t.therapistId?.toString() === therapistId.toString() && t.isActive
-                );
-                if (!isPrimary && !isAlreadyAssigned) {
-                  if (!patientRecord.assignedTherapists) {
-                    patientRecord.assignedTherapists = [];
-                  }
-                  patientRecord.assignedTherapists.push({
-                    therapistId: therapistId,
-                    assignedAt: new Date(),
-                    isActive: true,
-                  });
-                }
-              }
-              await patientRecord.save();
-            }
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error creating/linking Patient record for child:', error.message);
-    }
-  }
-  
-  // Priority 2: If patientId is provided but no childId, create regular patient record
-  if (!patientRecordId && patientId && !appointmentData.childId) {
-    try {
-      // Check if Patient record already exists for this user
-      let patientRecord = await Patient.findOne({ userId: patientId, isActive: true });
-      
-      if (!patientRecord) {
-        // Create a basic Patient record from User data
-        const userData = await User.findById(patientId);
-        if (userData && userData.role === 'patient') {
-          // Only create if user is actually a patient role
-          patientRecord = await Patient.create({
-            userId: patientId,
-            name: userData.name,
-            email: userData.email,
-            onboardedBy: therapistId, // Therapist/Doctor who received the appointment
-            onboardedByRole: therapist.role,
-            patientType: 'regular-patient',
-            dateOfBirth: new Date(), // Default, can be updated later
-            gender: 'prefer-not-to-say',
-            isActive: true,
-          });
-          
-          // Add onboardedBy to unified assignments array
-          if (therapistId && therapist.role) {
-            patientRecord.addAssignment(therapistId, therapist.role, 'onboarded');
-            await patientRecord.save();
-          }
-        }
-      }
-      
-      if (patientRecord) {
-        patientRecordId = patientRecord._id;
-        
-        // Auto-assign therapist/doctor if not already assigned (using unified assignments)
-        if (therapist.role === 'doctor' || therapist.role === 'therapist') {
-          // Check unified assignments first
-          const alreadyHasAccess = patientRecord.hasAccess && patientRecord.hasAccess(therapistId, therapist.role);
-          if (!alreadyHasAccess) {
-            // Use unified assignments structure
-            patientRecord.addAssignment(therapistId, therapist.role, 'assigned');
-            
-            // Also update legacy structure for backward compatibility
-            if (therapist.role === 'doctor') {
-              const isPrimary = patientRecord.primaryDoctor?.toString() === therapistId.toString();
-              const isAlreadyAssigned = patientRecord.assignedDoctors?.some(
-                (doc) => doc.doctorId?.toString() === therapistId.toString() && doc.isActive
-              );
-              if (!isPrimary && !isAlreadyAssigned) {
-                if (!patientRecord.assignedDoctors) {
-                  patientRecord.assignedDoctors = [];
-                }
-                patientRecord.assignedDoctors.push({
-                  doctorId: therapistId,
-                  assignedAt: new Date(),
-                  isActive: true,
-                });
-              }
-            } else if (therapist.role === 'therapist') {
-              const isPrimary = patientRecord.primaryTherapist?.toString() === therapistId.toString();
-              const isAlreadyAssigned = patientRecord.assignedTherapists?.some(
-                (t) => t.therapistId?.toString() === therapistId.toString() && t.isActive
-              );
-              if (!isPrimary && !isAlreadyAssigned) {
-                if (!patientRecord.assignedTherapists) {
-                  patientRecord.assignedTherapists = [];
-                }
-                patientRecord.assignedTherapists.push({
-                  therapistId: therapistId,
-                  assignedAt: new Date(),
-                  isActive: true,
-                });
-              }
-            }
-            await patientRecord.save();
-          }
-        }
-      }
-    } catch (error) {
-      // Log error but don't fail appointment creation
-      console.error('Error creating/linking Patient record:', error.message);
-    }
-  }
+  // Patient records removed - appointments work directly with children
+  // Child assignment handled separately below
 
   const appointment = new Appointment({
     ...appointmentData,
-    patientRecordId, // Link to Patient record if available
+    patientRecordId: null, // Patient records removed
     consultationFee,
     duration: profile.sessionDuration || 60,
   });
@@ -313,6 +146,7 @@ export const getAppointments = async (filters = {}, options = {}) => {
   const {
     therapistId,
     patientId,
+    parentId,
     status,
     startDate,
     endDate,
@@ -324,7 +158,29 @@ export const getAppointments = async (filters = {}, options = {}) => {
   const query = {};
 
   if (therapistId) query.therapistId = therapistId;
-  if (patientId) query.patientId = patientId;
+  
+  // For parents, find appointments for their children
+  if (parentId) {
+    // Find all children belonging to this parent
+    const children = await Child.find({ parentId }).select('_id').lean();
+    const childIds = children.map(child => child._id);
+    
+    // Query appointments where childId is in the parent's children list
+    // OR patientId matches the parent (for backward compatibility)
+    if (childIds.length > 0) {
+      query.$or = [
+        { childId: { $in: childIds } },
+        { patientId: parentId }
+      ];
+    } else {
+      // If parent has no children, only check patientId
+      query.patientId = parentId;
+    }
+  } else if (patientId) {
+    // For non-parent users, use patientId filter
+    query.patientId = patientId;
+  }
+  
   if (status) {
     // Handle comma-separated status values
     if (status.includes(',')) {
@@ -363,6 +219,82 @@ export const getAppointments = async (filters = {}, options = {}) => {
       pages: Math.ceil(total / limit),
     },
   };
+};
+
+/**
+ * Update appointment (date/time)
+ */
+export const updateAppointment = async (appointmentId, updateData, userId, role) => {
+  const appointment = await Appointment.findById(appointmentId)
+    .populate('therapistId')
+    .populate('patientId');
+
+  if (!appointment) {
+    throw new Error('Appointment not found');
+  }
+
+  // Authorization check - only therapist can update appointment time
+  const isTherapist = appointment.therapistId._id.toString() === userId.toString();
+  const isAdmin = role === 'admin';
+
+  if (!isTherapist && !isAdmin) {
+    throw new Error('Only therapists can update appointment time');
+  }
+
+  // Can only update pending or confirmed appointments
+  if (!['pending', 'confirmed'].includes(appointment.status)) {
+    throw new Error('Can only update pending or confirmed appointments');
+  }
+
+  // Validate new date/time
+  if (updateData.appointmentDate && updateData.appointmentTime) {
+    const appointmentDateTime = new Date(updateData.appointmentDate);
+    const [hours, minutes] = updateData.appointmentTime.split(':').map(Number);
+    appointmentDateTime.setHours(hours, minutes, 0, 0);
+
+    if (appointmentDateTime < new Date()) {
+      throw new Error('Cannot reschedule appointment to past time');
+    }
+
+    // Check for conflicts (excluding current appointment)
+    const conflictingAppointment = await Appointment.findOne({
+      _id: { $ne: appointmentId },
+      therapistId: appointment.therapistId._id,
+      appointmentDate: {
+        $gte: new Date(appointmentDateTime.getTime() - 30 * 60 * 1000),
+        $lte: new Date(appointmentDateTime.getTime() + 30 * 60 * 1000),
+      },
+      status: { $in: ['pending', 'confirmed'] },
+    });
+
+    if (conflictingAppointment) {
+      throw new Error('Time slot already booked');
+    }
+
+    appointment.appointmentDate = appointmentDateTime;
+    appointment.appointmentTime = updateData.appointmentTime;
+  }
+
+  await appointment.save();
+
+  // Format date for notification
+  const formattedDate = new Date(updateData.appointmentDate).toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  // Send notification to patient
+  await notificationService.createNotification({
+    userId: appointment.patientId._id,
+    type: 'appointment_rescheduled',
+    title: 'Appointment Rescheduled',
+    message: `Your appointment has been rescheduled to ${formattedDate} at ${updateData.appointmentTime}`,
+    relatedAppointment: appointment._id,
+  });
+
+  return appointment;
 };
 
 /**

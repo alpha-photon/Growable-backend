@@ -15,7 +15,7 @@ export const createTherapyReminder = async (childId, therapyData, userId, userRo
       const currentDate = new Date(startDate);
       currentDate.setDate(currentDate.getDate() + day);
       
-      const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'lowercase' });
+      const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
       
       if (daysOfWeek && daysOfWeek.includes(dayName)) {
         const scheduledDate = new Date(currentDate);
@@ -34,8 +34,14 @@ export const createTherapyReminder = async (childId, therapyData, userId, userRo
     });
   }
 
+  // Clean therapyData - remove empty strings for ObjectId fields
+  const cleanedTherapyData = { ...therapyData };
+  if (cleanedTherapyData.therapistId === '' || !cleanedTherapyData.therapistId) {
+    delete cleanedTherapyData.therapistId;
+  }
+
   const therapy = await TherapyReminder.create({
-    ...therapyData,
+    ...cleanedTherapyData,
     childId,
     createdBy: userId,
     sessions,

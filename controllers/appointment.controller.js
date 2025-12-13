@@ -54,6 +54,7 @@ export const getAppointments = async (req, res, next) => {
     }
 
     // If user is therapist/doctor, show their appointments
+    // If user is parent, show appointments for their children
     // If user is patient, show their appointments
     const filters = {
       ...req.query,
@@ -63,6 +64,9 @@ export const getAppointments = async (req, res, next) => {
 
     if (['therapist', 'doctor'].includes(req.user.role)) {
       filters.therapistId = req.user._id;
+    } else if (req.user.role === 'parent') {
+      // For parents, get appointments for their children
+      filters.parentId = req.user._id;
     } else {
       filters.patientId = req.user._id;
     }
@@ -118,6 +122,56 @@ export const getAppointmentById = async (req, res, next) => {
         message: error.message,
       });
     }
+    next(error);
+  }
+};
+
+/**
+ * @route   PUT /api/appointments/:id
+ * @desc    Update appointment (date/time)
+ * @access  Private
+ */
+export const updateAppointment = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authenticated',
+      });
+    }
+
+    const { appointmentDate, appointmentTime } = req.body;
+
+    // Validate required fields
+    if (!appointmentDate || !appointmentTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'appointmentDate and appointmentTime are required',
+      });
+    }
+
+    console.log('updateAppointment called:', {
+      appointmentId: req.params.id,
+      appointmentDate,
+      appointmentTime,
+      userId: req.user._id,
+      role: req.user.role,
+    });
+
+    const appointment = await appointmentService.updateAppointment(
+      req.params.id,
+      { appointmentDate, appointmentTime },
+      req.user._id,
+      req.user.role
+    );
+
+    res.json({
+      success: true,
+      data: appointment,
+      message: 'Appointment updated successfully',
+    });
+  } catch (error) {
+    console.error('updateAppointment error:', error);
     next(error);
   }
 };

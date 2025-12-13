@@ -4,17 +4,18 @@ import { protect } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(protect);
-
-// Public route for checking availability
+// Public route for checking availability (before protect middleware)
 router.get('/check-availability', appointmentController.checkAvailability);
 
-// Protected routes
+// All other routes require authentication
+router.use(protect);
+
+// Protected routes - specific routes before parameter routes
 router.post('/', appointmentController.createAppointment);
 router.get('/', appointmentController.getAppointments);
+router.put('/:id/status', appointmentController.updateAppointmentStatus); // Specific route before :id
+router.put('/:id', appointmentController.updateAppointment); // Update appointment (date/time)
 router.get('/:id', appointmentController.getAppointmentById);
-router.put('/:id/status', appointmentController.updateAppointmentStatus);
 
 export default router;
 

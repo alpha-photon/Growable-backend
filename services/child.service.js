@@ -520,6 +520,86 @@ export const removePrimaryProfessional = async (childId, role) => {
   return updatedChild;
 };
 
+/**
+ * Search children by parent email (for therapists/doctors to request access)
+ */
+export const searchChildrenByParentEmail = async (parentEmail, requestingProfessionalId, requestingRole) => {
+  const User = (await import('../models/User.model.js')).default;
+  
+  // Find parent by email
+  const parent = await User.findOne({ email: parentEmail, role: 'parent' });
+  if (!parent) {
+    throw new Error('Parent not found with this email');
+  }
+
+  console.log('🔍 Searching children for parent:', parent._id, parentEmail);
+  console.log('🔍 Requesting professional:', requestingProfessionalId, requestingRole);
+
+  // Get all children of this parent
+  const children = await Child.find({ 
+    parentId: parent._id, 
+    isActive: true 
+  })
+    .populate('parentId', 'name email')
+    .select('name dateOfBirth gender profilePhoto parentId primaryDoctor primaryTherapist assignedTherapists assignedDoctors')
+    .lean();
+
+  console.log('🔍 Found children:', children.length);
+  console.log('🔍 Children data:', JSON.stringify(children.map(c => ({
+    _id: c._id,
+    name: c.name,
+    primaryDoctor: c.primaryDoctor,
+    primaryTherapist: c.primaryTherapist,
+    assignedDoctors: c.assignedDoctors,
+    assignedTherapists: c.assignedTherapists,
+  })), null, 2));
+
+  // Add hasAccess flag to each child instead of filtering
+  const childrenWithAccessInfo = children.map((child) => {
+    // Convert IDs to strings for comparison
+    const requestingIdStr = requestingProfessionalId.toString();
+    let hasAccess = false;
+    
+    if (requestingRole === 'doctor') {
+      const primaryDoctorId = child.primaryDoctor ? (child.primaryDoctor._id || child.primaryDoctor).toString() : null;
+      const isPrimary = primaryDoctorId === requestingIdStr;
+      
+      const isAssigned = child.assignedDoctors?.some((doc) => {
+        const docId = doc.doctorId ? (doc.doctorId._id || doc.doctorId).toString() : null;
+        return docId === requestingIdStr && doc.isActive !== false;
+      }) || false;
+      
+      hasAccess = isPrimary || isAssigned;
+    } else if (requestingRole === 'therapist') {
+      const primaryTherapistId = child.primaryTherapist ? (child.primaryTherapist._id || child.primaryTherapist).toString() : null;
+      const isPrimary = primaryTherapistId === requestingIdStr;
+      
+      const isAssigned = child.assignedTherapists?.some((therapist) => {
+        const therapistId = therapist.therapistId ? (therapist.therapistId._id || therapist.therapistId).toString() : null;
+        return therapistId === requestingIdStr && therapist.isActive !== false;
+      }) || false;
+      
+      hasAccess = isPrimary || isAssigned;
+    }
+    
+    return {
+      ...child,
+      hasAccess,
+    };
+  });
+
+  console.log('🔍 Children with access info:', childrenWithAccessInfo.length);
+
+  return {
+    parent: {
+      _id: parent._id,
+      name: parent.name,
+      email: parent.email,
+    },
+    children: childrenWithAccessInfo,
+  };
+};
+
 export default {
   getChildDashboard,
   createChild,
@@ -533,5 +613,6 @@ export default {
   addAssignedProfessional,
   removeAssignedProfessional,
   removePrimaryProfessional,
+  searchChildrenByParentEmail,
 };
 
