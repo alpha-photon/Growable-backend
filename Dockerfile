@@ -32,7 +32,7 @@ RUN chown -R nodeuser:nodeuser /app
 # Switch to non-root user
 USER nodeuser
 
-# Expose port
+# Expose port (matches server.js default PORT=8000)
 EXPOSE 8000
 
 # Set environment to production

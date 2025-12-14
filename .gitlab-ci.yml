@@ -1,0 +1,68 @@
+# stages:
+#   - deploy
+
+# deploy_to_ec2:
+#   stage: deploy
+#   image: alpine:latest
+#   only:
+#     - main
+#   before_script:
+#     - apk add --no-cache openssh
+#     - mkdir -p ~/.ssh
+#     - echo "$EC2_SSH_KEY" > ~/.ssh/id_rsa
+#     - chmod 600 ~/.ssh/id_rsa
+#     - ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+#   script:
+#     - ssh $EC2_USER@$EC2_HOST << 'EOF'
+#     - cd /opt/applications/erp-institute-backend
+#     - echo "Pulling latest changes from git..."
+#     - whoami
+#     - git pull origin main
+#     - cd ..
+#     - echo "Deployment In Progress..."
+#     - docker-compose up --no-deps --build --force-recreate -d institute
+#     - docker system prune -af --filter "until=24h"
+#     - echo "Deployed"
+
+
+
+image: docker:24.0
+
+services:
+  - docker:24.0-dind
+
+variables:
+  AWS_DEFAULT_REGION: ap-east-1   # change to your AWS region
+  AWS_ECR_URL: 484907495283.dkr.ecr.us-east-1.amazonaws.com/growable/backend
+  ECS_CLUSTER: apexcode-devCluster
+  ECS_SERVICE: dev-growable-backend-task-service-hxsq23ky
+  ECS_TASK_FAMILY: dev-growable-backend-task
+
+stages:
+  - build
+  - deploy
+
+
+before_script:
+  - apk add --no-cache aws-cli
+  - aws --version
+  # Login to AWS ECR
+  - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+
+
+build_image:
+  stage: build
+  script:
+    - docker build -t $AWS_ECR_URL:latest .
+    - docker push $AWS_ECR_URL:latest
+  only:
+    - main
+
+deploy_ecs:
+  stage: deploy
+  script:
+    # Force ECS to use the new image
+    - aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --force-new-deployment
+  only:
+    - main
+
