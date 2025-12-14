@@ -12,25 +12,21 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /app
 
-# Create non-root user for security (Alpine uses adduser)
-RUN addgroup -g 1000 nodeuser && \
-    adduser -D -u 1000 -G nodeuser nodeuser
-
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies as root (needed for native modules)
+# Install dependencies as root (needed for native modules and file permissions)
 # Using npm ci for faster, reliable, reproducible builds
 RUN npm ci --only=production && npm cache clean --force
 
 # Copy application code
 COPY . .
 
-# Change ownership to nodeuser
-RUN chown -R nodeuser:nodeuser /app
+# Change ownership to node user (from base image, avoids GID/UID conflicts)
+RUN chown -R node:node /app
 
-# Switch to non-root user
-USER nodeuser
+# Switch to non-root user (node user from base image, UID 1000)
+USER node
 
 # Expose port (matches server.js default PORT=8000)
 EXPOSE 8000
